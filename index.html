@@ -37,7 +37,7 @@
       overscroll-behavior: none;
     }
 
-    /* Dokunmatik alan kuralları */
+    /* Dokunmatik alanlar */
     #drawCanvas, #previewCanvas, #instrumentsLayer, #imageLayer, #workspace, .instrument, #compassContainer {
       touch-action: none;
     }
@@ -73,7 +73,7 @@
       background-size: 30px 51.96px;
     }
 
-    /* Geometri Aletleri: CPU yormayan hafif yarı saydam stil (blur kaldırıldı) */
+    /* Geometri Aletleri: Akıcı ve kasmayan stil */
     .instrument {
       position: absolute;
       touch-action: none;
@@ -88,7 +88,7 @@
     }
 
     .glass-acrylic {
-      background: rgba(255, 255, 255, 0.88);
+      background: rgba(255, 255, 255, 0.92);
       border: 1.5px solid rgba(100, 116, 139, 0.5);
     }
 
@@ -327,7 +327,7 @@
     </div>
   </aside>
 
-  <!-- 2. ÇALIŞMA ALANI (WORKSPACE) -->
+  <!-- 2. ÇALIŞMA ALANI -->
   <main id="workspace" class="relative flex-1 board-bg bg-white overflow-hidden">
     <!-- Arka plan seçici -->
     <div id="backgroundPicker" class="absolute top-3 right-3 z-[70]">
@@ -381,16 +381,10 @@
       </div>
     </div>
 
-    <!-- PDF Katmanı -->
+    <!-- Canvas Katmanları -->
     <canvas id="pdfCanvas" class="absolute top-0 left-0 pointer-events-none z-0"></canvas>
-    
-    <!-- Asıl Çizim Katmanı -->
     <canvas id="drawCanvas" class="absolute top-0 left-0 z-10 cursor-crosshair"></canvas>
-
-    <!-- HIZLI ÖNİZLEME KATMANI (Lag ve donmayı bitiren katman) -->
     <canvas id="previewCanvas" class="absolute top-0 left-0 z-15 pointer-events-none"></canvas>
-
-    <!-- Resim Katmanı -->
     <div id="imageLayer" class="absolute inset-0 pointer-events-none z-20"></div>
 
     <!-- Metin Giriş Kutusu -->
@@ -527,18 +521,17 @@
 
     <div class="h-6 w-px bg-slate-700"></div>
 
-    <!-- Kalınlık -->
+    <!-- Kalınlık Ayarı: Hem Slider Hem Butonlar Birlikte Çalışır -->
     <div class="flex items-center gap-1.5">
       <i data-lucide="circle-dot" class="w-4 h-4 text-slate-400"></i>
-      <button id="penWidthMinus" type="button" class="w-5 h-5 flex items-center justify-center rounded bg-slate-700 text-slate-200 text-xs font-bold">−</button>
+      <button id="penWidthMinus" type="button" class="w-5 h-5 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-bold transition">−</button>
       <input type="range" id="penWidth" min="1" max="50" value="4" class="w-20 h-1.5 bg-slate-700 rounded-lg cursor-pointer accent-indigo-500">
       <span id="widthValue" class="text-xs font-mono text-slate-300 w-5 text-center">4</span>
-      <button id="penWidthPlus" type="button" class="w-5 h-5 flex items-center justify-center rounded bg-slate-700 text-slate-200 text-xs font-bold">+</button>
+      <button id="penWidthPlus" type="button" class="w-5 h-5 flex items-center justify-center rounded bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-bold transition">+</button>
     </div>
   </div>
 
   <script>
-    // Tam Ekran
     function toggleFullscreen() {
       if (!document.fullscreenElement) {
         document.documentElement.requestFullscreen().catch(() => {});
@@ -555,7 +548,7 @@
 
       activeBoardPage: 0,
       boardPages: [{ history: [], redoStack: [] }],
-      maxHistory: 15, // Belleği korumak için 15 adım yeterlidir
+      maxHistory: 15,
 
       isDrawing: false,
       activePointerId: null,
@@ -565,7 +558,7 @@
       panOffsets: { pdfCanvas: [0, 0], drawCanvas: [0, 0], imageLayer: [0, 0], instrumentsLayer: [0, 0] },
       selectedShape: 'free',
       penColor: '#000000',
-      penWidth: 4,
+      penWidth: 4, // Başlangıç kalınlığı
 
       isBold: false,
       isItalic: false,
@@ -596,13 +589,39 @@
     const previewCtx = previewCanvas.getContext('2d');
     const imageLayer = document.getElementById('imageLayer');
 
-    // PERFORMANS ÇÖZÜMÜ 1: Hızlı Donanım Destekli Geri Al / İleri Al (toDataURL YOK!)
+    // KALINLIK DEĞİŞTİRME FONKSİYONU (+, - ve Çubuk aynı anda bu fonksiyonu günceller)
+    const penWidthInput = document.getElementById('penWidth');
+    const widthValueSpan = document.getElementById('widthValue');
+    const penWidthMinus = document.getElementById('penWidthMinus');
+    const penWidthPlus = document.getElementById('penWidthPlus');
+
+    function updatePenWidth(newVal) {
+      const val = Math.max(1, Math.min(50, parseInt(newVal) || 1));
+      state.penWidth = val;
+      penWidthInput.value = val;
+      widthValueSpan.textContent = val;
+      penWidthMinus.disabled = (val <= 1);
+      penWidthPlus.disabled = (val >= 50);
+    }
+
+    penWidthInput.addEventListener('input', (e) => {
+      updatePenWidth(e.target.value);
+    });
+
+    penWidthMinus.addEventListener('click', (e) => {
+      e.preventDefault();
+      updatePenWidth(state.penWidth - 1);
+    });
+
+    penWidthPlus.addEventListener('click', (e) => {
+      e.preventDefault();
+      updatePenWidth(state.penWidth + 1);
+    });
+
+    // Hızlı Donanım Destekli Geri Al / İleri Al
     function saveCanvasState() {
       const page = state.boardPages[state.activeBoardPage];
-      if (page.history.length >= state.maxHistory) {
-        page.history.shift();
-      }
-      // Doğrudan bellek içi hızlı kopya
+      if (page.history.length >= state.maxHistory) page.history.shift();
       const snap = document.createElement('canvas');
       snap.width = drawCanvas.width;
       snap.height = drawCanvas.height;
@@ -677,7 +696,7 @@
       switchBoardPage(Math.max(0, state.activeBoardPage - 1));
     });
 
-    // PERFORMANS ÇÖZÜMÜ 2: Sabit DPR (Akıllı tahtada donmayı önler)
+    // Boyutlandırma
     function resizeCanvases() {
       const w = workspace.clientWidth;
       const h = workspace.clientHeight;
@@ -690,7 +709,6 @@
         tempCanvas.getContext('2d').drawImage(drawCanvas, 0, 0);
       }
 
-      // Akıllı tahtalarda 1:1 piksel eşleme yeterlidir, bellek yükünü 4 kat düşürür
       drawCanvas.width = w;
       drawCanvas.height = h;
       drawCanvas.style.width = `${w}px`;
@@ -718,7 +736,7 @@
 
     window.addEventListener('resize', resizeCanvases);
 
-    // Çizim Motoru (Çift Tuval & Pürüzsüz Eğriler)
+    // Çizim Motoru
     let lastX = 0, lastY = 0;
     let midX = 0, midY = 0;
 
@@ -736,6 +754,8 @@
       ctx.globalAlpha = state.currentTool === 'highlighter' ? 0.35 : 1.0;
       ctx.globalCompositeOperation = state.currentTool === 'eraser' ? 'destination-out' : 'source-over';
       ctx.strokeStyle = state.penColor;
+      
+      // Burada doğrudan güncel state.penWidth değeri kullanılır
       const base = state.currentTool === 'eraser' ? state.penWidth * 6
         : state.currentTool === 'highlighter' ? state.penWidth * 4
         : state.penWidth;
@@ -743,7 +763,7 @@
     }
 
     drawCanvas.addEventListener('pointerdown', (e) => {
-      if (state.activePointerId !== null) return; // İkincil parmağı yoksay
+      if (state.activePointerId !== null) return;
       state.activePointerId = e.pointerId;
       try { drawCanvas.setPointerCapture(e.pointerId); } catch (_) {}
 
@@ -802,12 +822,10 @@
       if (!state.isDrawing) return;
       const pos = getPos(e);
 
-      // PERFORMANS ÇÖZÜMÜ 3: Şekil önizlemesi hafif previewCanvas'ta yapılır (0 Lag)
       if (state.selectedShape !== 'free' && state.currentTool !== 'eraser') {
         previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
         drawShape(previewCtx, state.shapeStart, pos);
       } else {
-        // Serbest Çizim
         const mx = (lastX + pos.x) / 2;
         const my = (lastY + pos.y) / 2;
         setDrawingStyle(drawCtx);
@@ -963,7 +981,7 @@
       document.getElementById('polygonMenuPanel').classList.add('hidden');
     });
 
-    // Renk ve Kalınlık
+    // Renk Seçimi
     document.querySelectorAll('.color-preset').forEach(btn => {
       btn.addEventListener('click', () => {
         state.penColor = btn.getAttribute('data-color');
@@ -975,23 +993,6 @@
 
     document.getElementById('penColor').addEventListener('input', (e) => {
       state.penColor = e.target.value;
-    });
-
-    const penWidthInput = document.getElementById('penWidth');
-    const widthValueSpan = document.getElementById('widthValue');
-    penWidthInput.addEventListener('input', (e) => {
-      state.penWidth = parseInt(e.target.value);
-      widthValueSpan.textContent = state.penWidth;
-    });
-    document.getElementById('penWidthMinus').addEventListener('click', () => {
-      state.penWidth = Math.max(1, state.penWidth - 1);
-      penWidthInput.value = state.penWidth;
-      widthValueSpan.textContent = state.penWidth;
-    });
-    document.getElementById('penWidthPlus').addEventListener('click', () => {
-      state.penWidth = Math.min(50, state.penWidth + 1);
-      penWidthInput.value = state.penWidth;
-      widthValueSpan.textContent = state.penWidth;
     });
 
     // Temizle & Arka Plan
@@ -1123,7 +1124,6 @@
       doc.save(`cizim-${Date.now()}.pdf`);
     });
 
-    // Tam Ekran Butonu
     document.getElementById('btnFullscreen').addEventListener('click', toggleFullscreen);
 
     // Geometri Araç Çizimleri
@@ -1207,7 +1207,6 @@
       ctx.stroke();
     }
 
-    // Pergel Güncelleme
     function updateCompassTransform() {
       const comp = state.compass;
       const container = document.getElementById('compassContainer');
@@ -1228,7 +1227,6 @@
       document.getElementById('compassRadiusText').textContent = `${(r / 32).toFixed(1)} cm`;
     }
 
-    // Alet Taşıma ve Döndürme
     function setupInstrument(id, key) {
       const el = document.getElementById(id);
       let isDragging = false, isRotating = false, isResizing = false;
@@ -1290,7 +1288,6 @@
     setupInstrument('ruler', 'ruler');
     setupInstrument('triangle45', 'triangle45');
 
-    // Aletleri Göster / Gizle Butonları
     function bindToolBtn(btnId, elId, key) {
       document.getElementById(btnId).addEventListener('click', () => {
         const inst = state.instruments[key];
@@ -1305,7 +1302,6 @@
     bindToolBtn('btnProtractor', 'protractor', 'protractor');
     bindToolBtn('btnTriangle45', 'triangle45', 'triangle45');
 
-    // Pergel Butonu
     document.getElementById('btnCompass').addEventListener('click', () => {
       state.compass.visible = !state.compass.visible;
       document.getElementById('compassContainer').classList.toggle('hidden', !state.compass.visible);
@@ -1313,10 +1309,10 @@
       updateCompassTransform();
     });
 
-    // Sayfa Başlangıcı
     window.onload = () => {
       resizeCanvases();
       updatePageIndicator();
+      updatePenWidth(state.penWidth);
       if (window.lucide) lucide.createIcons();
     };
   </script>
